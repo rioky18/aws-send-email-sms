@@ -1,0 +1,5 @@
+<FindBugsFilter>
+  <Match>
+  	<Method name="~.*_hibernate_.*"/>
+  </Match>
+</FindBugsFilter>

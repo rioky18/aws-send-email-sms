@@ -1,0 +1,20 @@
+
+spring:
+  main:
+    banner-mode: "off"
+
+server:
+  contextPath: /api/v1
+  session:
+   timeout: 300
+
+logging:
+  level:
+    ROOT: INFO
+
+aws:
+  sns:
+    region: us-east-1
+  ses:
+    region: us-west-2
+    returnPath: email.bounce@gmail.com

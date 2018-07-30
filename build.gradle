@@ -1,0 +1,247 @@
+// Singtel Express Gradle build file
+
+buildscript {
+    ext {
+		springBootVersion = '1.5.4.RELEASE'
+	}
+    repositories {
+        jcenter()
+    }
+    dependencies {
+        classpath 'org.asciidoctor:asciidoctor-gradle-plugin:1.5.3'
+        classpath 'org.springframework.boot:spring-boot-gradle-plugin:1.5.3.RELEASE'
+        classpath 'io.github.swagger2markup:swagger2markup-spring-restdocs-ext:1.2.0'
+        classpath 'io.github.swagger2markup:swagger2markup-gradle-plugin:1.2.0'
+        classpath "org.ajoberstar:gradle-git:1.5.1"
+    }
+}
+
+plugins {
+    id 'org.springframework.boot' version '1.5.3.RELEASE'
+    id 'java'  
+    id 'eclipse'     
+	id 'maven-publish'
+	id 'checkstyle'
+	id 'findbugs'
+	id 'jdepend'
+	id 'pmd'
+}
+
+repositories
+{
+    // mavenLocal()
+    jcenter()
+    maven {
+	    url "https://nexus.dev.aws.singtel.com/repository/maven-public/"
+    }
+}
+
+
+apply plugin: 'eclipse'
+apply plugin: 'idea'
+apply plugin: 'application'
+apply plugin: 'org.asciidoctor.convert'
+apply plugin: 'io.github.swagger2markup'
+
+sourceCompatibility = 1.8
+targetCompatibility = 1.8
+
+if (version_suffix?.trim()) {
+  version = "${version_major}.${version_minor}.${version_patch}-${version_suffix}"
+} else {
+  version = "${version_major}.${version_minor}.${version_patch}"
+}
+
+project.ext {	
+	hibernateValidatorVersion='5.4.1.Final'
+}
+
+configurations.all
+{
+  	resolutionStrategy
+  	{
+		eachDependency { DependencyResolveDetails details ->		
+      		if ( details.requested.name == 'hibernate-validator' ) {
+        		details.useVersion "${hibernateValidatorVersion}"
+      		}
+    	}
+	}
+}
+
+ext {
+	htmlDocOutputDir = file("${buildDir}/docs/")
+    asciiDocOutputDir = file("${buildDir}/docs/asciidoc/generated")
+    swaggerOutputDir = file("${buildDir}/docs/swagger")
+    snippetsOutputDir = file("${buildDir}/docs/asciidoc/snippets")
+}
+
+springBoot {
+    executable = true
+}
+
+dependencies {
+
+	compile 'org.springframework.boot:spring-boot-starter-web'
+	compile 'org.springframework:spring-aspects:4.3.12.RELEASE'
+    compile 'com.amazonaws:aws-java-sdk-sns:1.11.163'
+    compile 'com.amazonaws:aws-java-sdk-ses:1.11.170'
+    compile 'io.swagger:swagger-annotations:1.5.6'
+    
+    testCompile 'org.springframework.boot:spring-boot-starter-test'
+}
+
+test {
+    systemProperty 'io.springfox.staticdocs.outputDir', swaggerOutputDir
+    systemProperty 'io.springfox.staticdocs.snippetsOutputDir', snippetsOutputDir
+    systemProperty 'com.singtel.digital.mercury.api,version', version
+}
+
+convertSwagger2markup {
+    dependsOn test
+    swaggerInput "${swaggerOutputDir}/swagger.json"
+    outputDir asciiDocOutputDir
+    config = [
+            'swagger2markup.pathsGroupedBy' : 'TAGS',
+            'swagger2markup.extensions.springRestDocs.snippetBaseUri': snippetsOutputDir.getAbsolutePath()]
+}
+
+asciidoctor {
+    dependsOn convertSwagger2markup
+    sources {
+        include 'index.adoc'
+    }
+    // to generate both html and pdf
+    // backends = ['html5', 'pdf']
+    outputDir = htmlDocOutputDir
+    attributes = [
+            doctype: 'book',
+            toc: 'left',
+            toclevels: '3',
+            numbered: '',
+            sectlinks: '',
+            sectanchors: '',
+            hardbreaks: '',
+            generated: asciiDocOutputDir
+    ]
+}
+
+task sourceJar(type: Jar) {
+    classifier = 'sources'
+    from sourceSets.main.allSource
+}
+task javadocJar(type: Jar) {
+    classifier = 'javadoc'
+    from javadoc
+}
+artifacts {
+    archives javadocJar, sourceJar
+}
+
+checkstyle {
+    toolVersion = "7.8"
+    sourceSets  = [sourceSets.main]
+}
+
+findbugs {
+    sourceSets = [sourceSets.main]
+    excludeFilter = file("$rootProject.projectDir/config/findbugs/excludeFilter.xml")
+}
+tasks.withType(FindBugs) {
+    reports {
+        xml.enabled false
+        html.enabled true
+    }
+}
+
+jdepend {
+   toolVersion = "2.9.1"
+   sourceSets = [sourceSets.main]
+   ignoreFailures = true
+}
+jdependMain {
+   reports {
+      xml.enabled true
+      text.enabled false
+   }
+}
+task jdependReport(dependsOn: jdependMain, group: 'verification', description: 'Generates a HTML report after executing jdepend checks.') {
+    doLast {
+	    ant.xslt(
+	        in: "$reporting.baseDir/jdepend/main.xml",
+	        style: "$rootDir/config/jdepend/report.xslt",
+	        out:"$reporting.baseDir/jdepend/main.html")
+    }
+}
+
+check {
+   dependsOn += ['jdependReport']
+}
+
+
+pmd {
+   toolVersion = "5.7.0"
+   sourceSets = [sourceSets.main]
+   ignoreFailures = true
+   ruleSets = []
+   ruleSetFiles = files("$rootDir/config/pmd/rulesets.xml")
+}
+pmdMain {
+   reports {
+      xml.enabled true
+      html.enabled false
+   }
+}
+task pmdReport(dependsOn: pmdMain, group: 'verification', description: 'Generates a HTML report after executing PMD checks.') {
+	doLast {
+		ant.xslt(
+			in: "$reporting.baseDir/pmd/main.xml",
+			style: "$rootDir/config/pmd/report.xslt",
+			out:"$reporting.baseDir/pmd/main.html" )
+	}
+}
+
+check {
+   dependsOn += ['pmdReport']
+}
+
+
+/*
+ * If you need to publish, ensure these variables are set in your 
+ * ~/.gradle/gradle.properties file:
+ *
+ *      singtel_digital_username
+ *      singtel_digital_password
+ */
+publishing {
+    publications {
+        mavenJava(MavenPublication) {
+        	groupId 'com.singtel.digital.mercury'
+            
+            from components.java
+            
+			artifact sourceJar {
+                classifier "sources"
+            }
+			artifact javadocJar {
+                classifier "javadoc"
+            }
+        }
+    }    
+    repositories {
+        maven {
+            if ( project.version.endsWith( '-SNAPSHOT' ) ) {
+                url "https://nexus.dev.aws.singtel.com/repository/maven-snapshots/"
+            } else {
+                url "https://nexus.dev.aws.singtel.com/repository/maven-releases/"
+            }
+            
+            // Define if provided - only the publish tasks needs credentials.
+			if ( project.hasProperty( 'singtel_digital_username' ) ) {
+	              credentials {
+	                username singtel_digital_username
+	                password singtel_digital_password
+	            }	 
+			}            
+        }
+    }
+}
